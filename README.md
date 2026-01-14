@@ -1,4 +1,4 @@
-# 副屏视频播放器（MT-Player）
+# 多屏播控播放器（MT-Player）
 
 > 一款专为双屏/多屏场景设计的轻量级媒体播放工具，支持视频与图片的全屏投放，主窗口进行列表管理与控制，适用于展会、监控、广告轮播、图片展示等场景。
 
@@ -386,25 +386,9 @@ VideoPlayerApp        ← 主控制窗口（QMainWindow）
 - `tab_widget.currentChanged` → `on_tab_changed()` 列表切换事件
 - `player_window.currentIndexChanged` → `sync_*_list_selection()` 播放项目同步
 
----
-
-## 📝 版本历史
-
-### v1.0.0 (当前)
-- ✅ 支持视频与图片混合投放
-- ✅ 实时列表切换
-- ✅ 屏幕冲突防护
-- ✅ 系统托盘集成
-- ✅ 全功能 UI 控制
 
 ---
 
-## 📄 许可证
-
-本项目采用 **MIT License** 开源协议 —— 免费用于个人或商业用途。  
-详见 [LICENSE](LICENSE) 文件。
-
----
 
 ## 👨‍💻 贡献指南
 
@@ -439,14 +423,6 @@ git push origin feature/your-feature
 | 📺 信息屏 | 广告、滚动图片、通知展示 |
 | 📹 监控中心 | 多屏视频监控回放 |
 | 🎓 培训室 | 教学视频全屏播放与管理 |
-
----
-
-## 📞 反馈与支持
-
-- 发现 Bug？ → 提交 [Issue](https://gitee.com/your-username/dual-screen-player/issues)
-- 有改进建议？ → 欢迎讨论
-- 需要帮助？ → 查看 [Wiki](https://gitee.com/your-username/dual-screen-player/wikis)
 
 ---
 
