@@ -174,7 +174,7 @@ def mute():
         return jsonify({'success': False, 'error': '图片模式无需静音控制'}), 400
     def _mute():
         player_app.player_window.audio_output.setMuted(True)
-        player_app.is_muted = True
+        player_app._update_mute_ui(True)
     ctrl = _get_controller()
     ctrl.invoke_on_main(_mute)
     return jsonify({'success': True, 'message': '已静音'})
@@ -191,7 +191,7 @@ def unmute():
         return jsonify({'success': False, 'error': '图片模式无需静音控制'}), 400
     def _unmute():
         player_app.player_window.audio_output.setMuted(False)
-        player_app.is_muted = False
+        player_app._update_mute_ui(False)
     ctrl = _get_controller()
     ctrl.invoke_on_main(_unmute)
     return jsonify({'success': True, 'message': '已取消静音'})

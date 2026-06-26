@@ -146,7 +146,7 @@ def handle_tool_call(name: str, arguments: dict):
                 return "图片模式无需静音控制"
             def _m():
                 app.player_window.audio_output.setMuted(True)
-                app.is_muted = True
+                app._update_mute_ui(True)
             ctrl.invoke_on_main(_m)
             return "已静音"
 
@@ -157,7 +157,7 @@ def handle_tool_call(name: str, arguments: dict):
                 return "图片模式无需静音控制"
             def _u():
                 app.player_window.audio_output.setMuted(False)
-                app.is_muted = False
+                app._update_mute_ui(False)
             ctrl.invoke_on_main(_u)
             return "已取消静音"
 
