@@ -1,3 +1,4 @@
+import hmac
 import logging
 import threading
 from pathlib import Path
@@ -36,7 +37,7 @@ def require_token(f):
         if _api_token is None:
             return f(*args, **kwargs)
         auth = request.headers.get('Authorization', '')
-        if not auth.startswith('Bearer ') or auth[7:] != _api_token:
+        if not auth.startswith('Bearer ') or not hmac.compare_digest(auth[7:], _api_token):
             return jsonify({'success': False, 'error': '未授权，请提供有效的 Bearer Token'}), 401
         return f(*args, **kwargs)
     return decorated
@@ -73,12 +74,10 @@ def start_projection():
     if player_app.is_projecting:
         return jsonify({'success': False, 'error': '已在投放中'}), 400
 
-    data, err, code = _get_json()
-    if err:
-        return err, code
+    data = request.get_json(silent=True) or {}
 
     ctrl = _get_controller()
-    if data and 'screen_index' in data:
+    if 'screen_index' in data:
         idx, err_resp, err_code = _validate_int(data['screen_index'], 'screen_index')
         if err_resp:
             return err_resp, err_code
@@ -122,8 +121,10 @@ def play():
         return jsonify({'success': False, 'error': '播放器未初始化'}), 500
     if not player_app.is_projecting:
         return jsonify({'success': False, 'error': '请先开始投放'}), 400
+    if player_app.player_window and player_app.player_window.is_image_mode:
+        return jsonify({'success': False, 'error': '图片模式无需播放控制'}), 400
     ctrl = _get_controller()
-    ctrl.invoke_on_main(player_app.player_window.media_player.play)
+    ctrl.invoke_on_main(player_app._apply_play_pause, True)
     return jsonify({'success': True, 'message': '已开始播放'})
 
 
@@ -135,7 +136,7 @@ def pause():
     if not player_app.is_projecting:
         return jsonify({'success': False, 'error': '请先开始投放'}), 400
     ctrl = _get_controller()
-    ctrl.invoke_on_main(player_app.player_window.media_player.pause)
+    ctrl.invoke_on_main(player_app._apply_play_pause, False)
     return jsonify({'success': True, 'message': '已暂停'})
 
 
@@ -172,11 +173,8 @@ def mute():
         return jsonify({'success': False, 'error': '请先开始投放'}), 400
     if player_app.player_window.is_image_mode:
         return jsonify({'success': False, 'error': '图片模式无需静音控制'}), 400
-    def _mute():
-        player_app.player_window.audio_output.setMuted(True)
-        player_app._update_mute_ui(True)
     ctrl = _get_controller()
-    ctrl.invoke_on_main(_mute)
+    ctrl.invoke_on_main(player_app._apply_mute, True)
     return jsonify({'success': True, 'message': '已静音'})
 
 
@@ -189,11 +187,8 @@ def unmute():
         return jsonify({'success': False, 'error': '请先开始投放'}), 400
     if player_app.player_window.is_image_mode:
         return jsonify({'success': False, 'error': '图片模式无需静音控制'}), 400
-    def _unmute():
-        player_app.player_window.audio_output.setMuted(False)
-        player_app._update_mute_ui(False)
     ctrl = _get_controller()
-    ctrl.invoke_on_main(_unmute)
+    ctrl.invoke_on_main(player_app._apply_mute, False)
     return jsonify({'success': True, 'message': '已取消静音'})
 
 
@@ -216,15 +211,18 @@ def get_player_status():
 
     if player_app.is_projecting and player_app.player_window:
         pw = player_app.player_window
-        status['current_index'] = pw.current_index
-        status['is_image_mode'] = pw.is_image_mode
+        ctrl = _get_controller()
+        status['current_index'] = ctrl.invoke_on_main(lambda: pw.current_index)
+        is_image = ctrl.invoke_on_main(lambda: pw.is_image_mode)
+        status['is_image_mode'] = is_image
         snap = player_app.library.snapshot()
-        files = snap['images'] if pw.is_image_mode else snap['videos']
+        files = snap['images'] if is_image else snap['videos']
         status['total_count'] = len(files)
-        if 0 <= pw.current_index < len(files):
-            status['current_file'] = Path(files[pw.current_index]).name
-        if not pw.is_image_mode:
-            ps = pw.media_player.playbackState()
+        idx = status['current_index']
+        if 0 <= idx < len(files):
+            status['current_file'] = Path(files[idx]).name
+        if not is_image:
+            ps = ctrl.invoke_on_main(pw.media_player.playbackState)
             status['playback_state'] = 'playing' if ps == 1 else ('paused' if ps == 2 else 'stopped')
 
     return jsonify(status)
@@ -409,13 +407,16 @@ def get_full_status():
 
     if player_app.is_projecting and player_app.player_window:
         pw = player_app.player_window
-        status['player']['current_index'] = pw.current_index
-        files = snap['images'] if pw.is_image_mode else snap['videos']
+        ctrl = _get_controller()
+        status['player']['current_index'] = ctrl.invoke_on_main(lambda: pw.current_index)
+        is_image = ctrl.invoke_on_main(lambda: pw.is_image_mode)
+        files = snap['images'] if is_image else snap['videos']
         status['player']['total_count'] = len(files)
-        if 0 <= pw.current_index < len(files):
-            status['player']['current_file'] = Path(files[pw.current_index]).name
-        if not pw.is_image_mode:
-            ps = pw.media_player.playbackState()
+        idx = status['player']['current_index']
+        if 0 <= idx < len(files):
+            status['player']['current_file'] = Path(files[idx]).name
+        if not is_image:
+            ps = ctrl.invoke_on_main(pw.media_player.playbackState)
             status['player']['playback_state'] = 'playing' if ps == 1 else ('paused' if ps == 2 else 'stopped')
 
     return jsonify(status)

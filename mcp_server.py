@@ -116,7 +116,7 @@ def handle_tool_call(name: str, arguments: dict):
                 return "请先开始投放"
             if app.player_window.is_image_mode:
                 return "图片模式无需播放控制"
-            ctrl.invoke_on_main(app.player_window.media_player.play)
+            ctrl.invoke_on_main(app._apply_play_pause, True)
             return "已开始播放"
 
         elif name == "pause":
@@ -124,7 +124,7 @@ def handle_tool_call(name: str, arguments: dict):
                 return "请先开始投放"
             if app.player_window.is_image_mode:
                 return "图片模式无需暂停控制"
-            ctrl.invoke_on_main(app.player_window.media_player.pause)
+            ctrl.invoke_on_main(app._apply_play_pause, False)
             return "已暂停"
 
         elif name == "prev_media":
@@ -144,10 +144,7 @@ def handle_tool_call(name: str, arguments: dict):
                 return "请先开始投放"
             if app.player_window.is_image_mode:
                 return "图片模式无需静音控制"
-            def _m():
-                app.player_window.audio_output.setMuted(True)
-                app._update_mute_ui(True)
-            ctrl.invoke_on_main(_m)
+            ctrl.invoke_on_main(app._apply_mute, True)
             return "已静音"
 
         elif name == "unmute":
@@ -155,10 +152,7 @@ def handle_tool_call(name: str, arguments: dict):
                 return "请先开始投放"
             if app.player_window.is_image_mode:
                 return "图片模式无需静音控制"
-            def _u():
-                app.player_window.audio_output.setMuted(False)
-                app._update_mute_ui(False)
-            ctrl.invoke_on_main(_u)
+            ctrl.invoke_on_main(app._apply_mute, False)
             return "已取消静音"
 
         elif name == "get_player_status":
@@ -171,14 +165,16 @@ def handle_tool_call(name: str, arguments: dict):
             }
             if app.is_projecting and app.player_window:
                 pw = app.player_window
-                status["current_index"] = pw.current_index
+                status["current_index"] = ctrl.invoke_on_main(lambda: pw.current_index)
+                is_image = ctrl.invoke_on_main(lambda: pw.is_image_mode)
                 snap = lib.snapshot()
-                files = snap['images'] if pw.is_image_mode else snap['videos']
+                files = snap['images'] if is_image else snap['videos']
                 status["total_count"] = len(files)
-                if 0 <= pw.current_index < len(files):
-                    status["current_file"] = Path(files[pw.current_index]).name
-                if not pw.is_image_mode:
-                    ps = pw.media_player.playbackState()
+                idx = status["current_index"]
+                if 0 <= idx < len(files):
+                    status["current_file"] = Path(files[idx]).name
+                if not is_image:
+                    ps = ctrl.invoke_on_main(pw.media_player.playbackState)
                     status["playback_state"] = "playing" if ps == 1 else ("paused" if ps == 2 else "stopped")
             return json.dumps(status, ensure_ascii=False)
 
@@ -262,13 +258,15 @@ def handle_tool_call(name: str, arguments: dict):
             }
             if app.is_projecting and app.player_window:
                 pw = app.player_window
-                status["player"]["current_index"] = pw.current_index
-                files = snap['images'] if pw.is_image_mode else snap['videos']
+                status["player"]["current_index"] = ctrl.invoke_on_main(lambda: pw.current_index)
+                is_image = ctrl.invoke_on_main(lambda: pw.is_image_mode)
+                files = snap['images'] if is_image else snap['videos']
                 status["player"]["total_count"] = len(files)
-                if 0 <= pw.current_index < len(files):
-                    status["player"]["current_file"] = Path(files[pw.current_index]).name
-                if not pw.is_image_mode:
-                    ps = pw.media_player.playbackState()
+                idx = status["player"]["current_index"]
+                if 0 <= idx < len(files):
+                    status["player"]["current_file"] = Path(files[idx]).name
+                if not is_image:
+                    ps = ctrl.invoke_on_main(pw.media_player.playbackState)
                     status["player"]["playback_state"] = "playing" if ps == 1 else ("paused" if ps == 2 else "stopped")
             return json.dumps(status, ensure_ascii=False, indent=2)
 

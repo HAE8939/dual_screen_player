@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 SUPPORTED_VIDEO_EXTS = {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm'}
 SUPPORTED_IMAGE_EXTS = {'.png', '.jpg', '.jpeg'}
 
-__version__ = '3.2.0'
+__version__ = '3.3.1'
 
 # 持久化文件路径：用户目录下
 _STATE_DIR = Path.home() / ".mt-player"
@@ -26,6 +26,8 @@ class MediaLibrary(QObject):
         super().__init__()
         self._videos = []
         self._images = []
+        self._watched_folders = []  # 已导入的文件夹路径
+        self._standalone_files = []  # 单独添加的文件（非文件夹导入）
         self._lock = threading.Lock()
 
     @staticmethod
@@ -37,7 +39,7 @@ class MediaLibrary(QObject):
             return 'image'
         return None
 
-    def add(self, paths: list[str]) -> dict:
+    def add(self, paths: list[str], track_standalone: bool = True) -> dict:
         added_videos, added_images = [], []
         with self._lock:
             existing_v = set(self._videos)
@@ -53,6 +55,14 @@ class MediaLibrary(QObject):
                     self._images.append(resolved)
                     existing_i.add(resolved)
                     added_images.append(resolved)
+            if track_standalone:
+                all_added = added_videos + added_images
+                if all_added:
+                    existing_standalone = set(self._standalone_files)
+                    for f in all_added:
+                        if f not in existing_standalone:
+                            self._standalone_files.append(f)
+                            existing_standalone.add(f)
         if added_videos or added_images:
             if added_videos:
                 self.videosChanged.emit()
@@ -61,21 +71,35 @@ class MediaLibrary(QObject):
             self._persist()
         return {'added_videos': added_videos, 'added_images': added_images}
 
-    def remove(self, kind: str, index: int) -> str | None:
+    def add_from_folder(self, folder_path: str) -> dict:
+        """从文件夹导入，记录文件夹路径以便启动时自动扫描"""
+        folder = str(Path(folder_path).resolve())
+        new_paths = []
+        try:
+            for file in Path(folder).iterdir():
+                if file.is_file():
+                    new_paths.append(str(file.resolve()))
+        except Exception as e:
+            logger.error(f"读取文件夹出错: {e}")
+            return {'added_videos': [], 'added_images': []}
+
         with self._lock:
-            if kind == 'video':
-                if 0 <= index < len(self._videos):
-                    removed = self._videos.pop(index)
-                    self.videosChanged.emit()
-                    self._persist()
-                    return removed
-            elif kind == 'image':
-                if 0 <= index < len(self._images):
-                    removed = self._images.pop(index)
-                    self.imagesChanged.emit()
-                    self._persist()
-                    return removed
-        return None
+            if folder not in self._watched_folders:
+                self._watched_folders.append(folder)
+
+        return self.add(new_paths, track_standalone=False)
+
+    def remove(self, kind: str, index: int) -> str | None:
+        removed, sig = None, None
+        with self._lock:
+            lst = self._videos if kind == 'video' else self._images if kind == 'image' else None
+            if lst is not None and 0 <= index < len(lst):
+                removed = lst.pop(index)
+                sig = 'video' if kind == 'video' else 'image'
+        if removed is not None:
+            (self.videosChanged if sig == 'video' else self.imagesChanged).emit()
+            self._persist()
+        return removed
 
     def clear(self, kind: str = 'all') -> dict:
         cleared = {'videos': 0, 'images': 0}
@@ -103,20 +127,20 @@ class MediaLibrary(QObject):
     # ==================== 持久化 ====================
 
     def _persist(self):
-        """保存当前列表到磁盘"""
+        """保存文件夹列表和单独文件到磁盘"""
         try:
             _STATE_DIR.mkdir(parents=True, exist_ok=True)
-            snap = self.snapshot()
-            data = {
-                'videos': snap['videos'],
-                'images': snap['images'],
-            }
+            with self._lock:
+                data = {
+                    'watched_folders': list(self._watched_folders),
+                    'standalone_files': list(self._standalone_files),
+                }
             _STATE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
         except Exception as e:
             logger.warning(f"保存媒体列表失败: {e}")
 
     def load_from_disk(self) -> dict:
-        """从磁盘加载上次的列表，校验文件是否存在"""
+        """从磁盘加载：扫描已记录的文件夹 + 恢复单独文件"""
         if not _STATE_FILE.exists():
             return {'videos': 0, 'images': 0, 'missing': 0}
 
@@ -126,26 +150,45 @@ class MediaLibrary(QObject):
             logger.warning(f"读取媒体列表失败: {e}")
             return {'videos': 0, 'images': 0, 'missing': 0}
 
-        valid_videos = [p for p in data.get('videos', []) if Path(p).is_file()]
-        valid_images = [p for p in data.get('images', []) if Path(p).is_file()]
-        missing = (len(data.get('videos', [])) - len(valid_videos) +
-                   len(data.get('images', [])) - len(valid_images))
+        # 兼容旧格式（直接保存文件列表）
+        if 'videos' in data and 'images' in data:
+            all_paths = data.get('videos', []) + data.get('images', [])
+            with self._lock:
+                self._standalone_files = list(all_paths)
+            self._persist()  # 转换为新格式
+            return self.load_from_disk()
 
-        with self._lock:
-            self._videos = valid_videos
-            self._images = valid_images
+        all_new = []
 
-        if valid_videos:
-            self.videosChanged.emit()
-        if valid_images:
-            self.imagesChanged.emit()
+        # 扫描已记录的文件夹
+        valid_folders = []
+        for folder in data.get('watched_folders', []):
+            if Path(folder).is_dir():
+                valid_folders.append(folder)
+                try:
+                    for file in Path(folder).iterdir():
+                        if file.is_file():
+                            all_new.append(str(file.resolve()))
+                except Exception:
+                    pass
 
-        loaded = len(valid_videos) + len(valid_images)
-        if missing > 0:
-            logger.info(f"已恢复 {loaded} 个文件，{missing} 个文件已丢失跳过")
-        else:
-            logger.info(f"已恢复 {loaded} 个文件")
-        return {'videos': len(valid_videos), 'images': len(valid_images), 'missing': missing}
+        # 恢复单独文件
+        missing = 0
+        for f in data.get('standalone_files', []):
+            if Path(f).is_file():
+                all_new.append(f)
+            else:
+                missing += 1
+
+        result = self.add(all_new, track_standalone=False)
+
+        # 更新已记录的文件夹（移除不存在的）
+        self._watched_folders = valid_folders
+        self._persist()
+
+        loaded = len(result['added_videos']) + len(result['added_images'])
+        logger.info(f"已恢复 {loaded} 个文件（来自 {len(valid_folders)} 个文件夹），{missing} 个已丢失")
+        return {'videos': len(result['added_videos']), 'images': len(result['added_images']), 'missing': missing}
 
     @property
     def video_count(self) -> int:

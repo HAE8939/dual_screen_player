@@ -95,6 +95,18 @@ def _light_stylesheet():
         color: white;
     }}
 
+    /* === 最小化按钮 === */
+    QToolButton#minimizeBtn {{
+        color: {TEXT_SECONDARY};
+        font-size: 14px;
+        background: transparent;
+        border: none;
+        border-radius: 16px;
+    }}
+    QToolButton#minimizeBtn:hover {{
+        background-color: {BORDER_DEFAULT};
+    }}
+
     /* === 屏幕选择 === */
     QLabel#screenLabel {{
         color: {TEXT_SECONDARY};
@@ -353,6 +365,18 @@ def _dark_stylesheet():
         color: white;
     }}
 
+    /* === 最小化按钮 === */
+    QToolButton#minimizeBtn {{
+        color: {DARK_TEXT_SECONDARY};
+        font-size: 14px;
+        background: transparent;
+        border: none;
+        border-radius: 16px;
+    }}
+    QToolButton#minimizeBtn:hover {{
+        background-color: {DARK_BORDER_DEFAULT};
+    }}
+
     /* === 屏幕选择 === */
     QLabel#screenLabel {{
         color: {DARK_TEXT_SECONDARY};
@@ -529,6 +553,15 @@ def _dark_stylesheet():
         padding: 12px 24px;
         border-radius: {RADIUS_MD};
         font-size: {FONT_SIZE_BODY};
+        font-weight: bold;
+    }}
+
+    /* === 退出对话框 === */
+    QDialog {{
+        background-color: {DARK_BG_CANVAS};
+    }}
+    QToolButton#exitDialogBtn {{
+        color: {DANGER};
         font-weight: bold;
     }}
 

@@ -2,16 +2,19 @@ import sys
 import os
 import logging
 import argparse
+import threading
+import mss
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QComboBox, QListWidget, QToolButton, QFileDialog,
     QSystemTrayIcon, QMenu, QMessageBox, QTabWidget, QListWidgetItem,
-    QStackedWidget, QDialog, QDialogButtonBox, QSizePolicy, QSplitter
+    QStackedWidget, QDialog, QDialogButtonBox, QSizePolicy, QSplitter,
+    QSizeGrip
 )
-from PyQt6.QtCore import Qt, QUrl, pyqtSignal, QTimer, QSize
-from PyQt6.QtGui import QIcon, QPixmap, QAction, QColor
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal, QTimer, QSize, QThread
+from PyQt6.QtGui import QIcon, QPixmap, QImage, QAction, QColor
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 
@@ -27,7 +30,6 @@ logger = logging.getLogger(__name__)
 MIN_WIDTH = 820
 MIN_HEIGHT = 420
 PREVIEW_PANEL_WIDTH = 260
-PREVIEW_UPDATE_INTERVAL = 1000
 
 
 def resource_path(relative_path):
@@ -86,6 +88,49 @@ class LoadingOverlay(QWidget):
         self.hide()
 
 
+class PreviewWorker(QThread):
+    """后台线程：抓取屏幕预览帧，避免阻塞主线程"""
+    frame_ready = pyqtSignal(QImage)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._running = False
+        self._screen = None
+        self._lock = threading.Lock()
+
+    def set_screen(self, screen):
+        with self._lock:
+            self._screen = screen
+
+    def run(self):
+        self._running = True
+        while self._running:
+            screen = None
+            with self._lock:
+                screen = self._screen
+            if screen:
+                try:
+                    geo = screen.geometry()
+                    with mss.MSS() as sct:
+                        monitor = {
+                            "left": geo.x(), "top": geo.y(),
+                            "width": geo.width(), "height": geo.height(),
+                        }
+                        shot = sct.grab(monitor)
+                        img = QImage(
+                            shot.rgb, shot.width, shot.height,
+                            shot.width * 3, QImage.Format.Format_RGB888,
+                        )
+                        self.frame_ready.emit(img.copy())
+                except Exception:
+                    pass
+            self.msleep(1500)
+
+    def stop(self):
+        self._running = False
+        self.wait()
+
+
 class PlayerWindow(QMainWindow):
     """全屏播放器窗口"""
     currentIndexChanged = pyqtSignal(int)
@@ -125,6 +170,19 @@ class PlayerWindow(QMainWindow):
         self.image_list = []
         self.current_index = -1
         self.is_image_mode = False
+        self._tearing_down = False
+
+    def teardown(self):
+        self._tearing_down = True
+        try:
+            self.media_player.mediaStatusChanged.disconnect(self.on_media_status_changed)
+        except (TypeError, RuntimeError):
+            pass
+        try:
+            self.media_player.setSource(QUrl())
+            self.media_player.stop()
+        except Exception:
+            pass
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -178,7 +236,7 @@ class PlayerWindow(QMainWindow):
             self.currentIndexChanged.emit(index)
 
     def on_media_status_changed(self, status):
-        if self.is_image_mode:
+        if self.is_image_mode or getattr(self, "_tearing_down", False):
             return
         if status == QMediaPlayer.MediaStatus.EndOfMedia:
             if self.video_list:
@@ -261,8 +319,13 @@ class VideoPlayerApp(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("MT-Player")
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setMinimumSize(MIN_WIDTH, MIN_HEIGHT)
         self.resize(MIN_WIDTH, MIN_HEIGHT)
+        self._drag_pos = None
+        self._resize_edge = None
+        self._resize_start_pos = None
+        self._resize_start_rect = None
 
         # 全局样式
         QApplication.instance().setStyleSheet(build_stylesheet(theme))
@@ -273,6 +336,10 @@ class VideoPlayerApp(QMainWindow):
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
         outer_layout = QHBoxLayout()
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.setSpacing(0)
@@ -283,10 +350,12 @@ class VideoPlayerApp(QMainWindow):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(0)
 
-        # --- 标题栏 ---
+        # --- 标题栏（可拖动）---
         title_bar = QWidget()
         title_bar.setObjectName("titleBar")
         title_bar.setFixedHeight(50)
+        title_bar.mousePressEvent = self._title_bar_mouse_press
+        title_bar.mouseMoveEvent = self._title_bar_mouse_move
         title_layout = QHBoxLayout()
         title_layout.setContentsMargins(16, 0, 8, 0)
 
@@ -294,12 +363,22 @@ class VideoPlayerApp(QMainWindow):
         brand_layout.setSpacing(6)
         brand_label = QLabel("MT-Player")
         brand_label.setObjectName("titleLabel")
+        brand_label.setStyleSheet("background: transparent;")
         version_label = QLabel(f"v{__version__}")
         version_label.setObjectName("versionLabel")
+        version_label.setStyleSheet("background: transparent;")
         brand_layout.addWidget(brand_label)
         brand_layout.addWidget(version_label)
         brand_layout.addStretch()
         title_layout.addLayout(brand_layout)
+
+        self.btn_minimize = QToolButton()
+        self.btn_minimize.setObjectName("minimizeBtn")
+        self.btn_minimize.setText("─")
+        self.btn_minimize.setFixedSize(32, 32)
+        self.btn_minimize.setToolTip("最小化")
+        self.btn_minimize.clicked.connect(self.showMinimized)
+        title_layout.addWidget(self.btn_minimize)
 
         self.btn_exit_app = QToolButton()
         self.btn_exit_app.setObjectName("exitBtn")
@@ -395,10 +474,21 @@ class VideoPlayerApp(QMainWindow):
         preview_wrapper.setLayout(preview_container)
         outer_layout.addWidget(preview_wrapper)
 
-        central_widget.setLayout(outer_layout)
+        main_layout.addLayout(outer_layout, 1)
+
+        grip_row = QHBoxLayout()
+        grip_row.setContentsMargins(0, 0, 4, 4)
+        grip_row.addStretch()
+        size_grip = QSizeGrip(self)
+        size_grip.setFixedSize(16, 16)
+        grip_row.addWidget(size_grip)
+        main_layout.addLayout(grip_row)
+
+        central_widget.setLayout(main_layout)
 
         # 状态
         self.player_window = None
+        self._projecting_screen = None
         self.is_muted = False
         self.current_mode = "video"
         self.is_projecting = False
@@ -410,11 +500,17 @@ class VideoPlayerApp(QMainWindow):
 
         self.screen_combo.currentIndexChanged.connect(self._on_screen_changed)
 
-        self.preview_timer = QTimer(self)
-        self.preview_timer.setInterval(PREVIEW_UPDATE_INTERVAL)
-        self.preview_timer.timeout.connect(self.update_screen_preview)
+        # 预览 worker 线程（替代主线程 mss.grab）
+        self._preview_worker = PreviewWorker(self)
+        self._preview_worker.frame_ready.connect(self._on_preview_frame)
+        self._preview_worker.set_screen(self.screen_combo.currentData())
         if not headless:
-            self.preview_timer.start()
+            self._preview_worker.start()
+
+        # 屏幕热插拔信号（替代 3 秒轮询）
+        qapp = QApplication.instance()
+        qapp.screenAdded.connect(self._on_screens_changed)
+        qapp.screenRemoved.connect(self._on_screens_changed)
 
         # 按钮信号
         self.btn_folder.clicked.connect(self._on_add_folder)
@@ -452,9 +548,23 @@ class VideoPlayerApp(QMainWindow):
             self.screen_combo.addItem(label, screen)
 
     def _on_screen_changed(self, index):
-        self.update_screen_preview()
+        screen = self.screen_combo.currentData()
+        if self._preview_worker and screen:
+            self._preview_worker.set_screen(screen)
         if self.is_projecting:
             self.toast.show_message("切换屏幕需重新投放", 2000)
+
+    def _on_screens_changed(self, screen=None):
+        """Qt 原生热插拔信号回调 —— 重建下拉框，屏蔽信号避免误报"""
+        self.screen_combo.blockSignals(True)
+        self.init_screens()
+        self.screen_combo.blockSignals(False)
+
+        if self.is_projecting and self.player_window:
+            app = QApplication.instance()
+            if self._projecting_screen not in app.screens():
+                self.toast.show_message("目标屏幕已断开，停止投放")
+                self.stop_projection()
 
     def _on_tab_changed(self, index):
         self.current_mode = "video" if index == 0 else "image"
@@ -502,12 +612,15 @@ class VideoPlayerApp(QMainWindow):
             self.toast.show_message("投放屏幕不能与应用所在屏幕相同")
             return
 
+        name = target_screen.name()
+
         if self._projection_debounce:
             return
         self._projection_debounce = True
         QTimer.singleShot(500, lambda: setattr(self, '_projection_debounce', False))
 
         self.player_window = PlayerWindow(target_screen.geometry())
+        self._projecting_screen = target_screen
 
         if self.current_mode == "video":
             self.player_window.set_video_list(content_list)
@@ -527,16 +640,19 @@ class VideoPlayerApp(QMainWindow):
         return target_screen != main_window_screen
 
     def stop_projection(self):
-        if self.player_window:
-            try:
-                self.player_window.currentIndexChanged.disconnect()
-            except TypeError:
-                pass
-            self.player_window.media_player.stop()
-            self.player_window.close()
-            self.player_window = None
+        pw = self.player_window
+        self.player_window = None
+        self._projecting_screen = None
         self.is_projecting = False
         self._update_projection_ui()
+        if pw:
+            try:
+                pw.currentIndexChanged.disconnect()
+            except TypeError:
+                pass
+            pw.teardown()
+            pw.hide()
+            pw.deleteLater()
 
     def _update_projection_ui(self):
         if self.is_projecting:
@@ -547,26 +663,17 @@ class VideoPlayerApp(QMainWindow):
             self.btn_projection.set_active(False)
             self.status_badge.set_state("idle")
 
-    def update_screen_preview(self):
-        if self.headless or not self.isVisible():
-            return
-        app = QApplication.instance()
-        screen = self.screen_combo.currentData() or app.primaryScreen()
-        if not screen:
-            return
-        try:
-            geo = screen.geometry()
-            pix = screen.grabWindow(0, geo.x(), geo.y(), geo.width(), geo.height())
-            if pix and not pix.isNull():
-                target_size = self.preview_label.size()
-                scaled = pix.scaled(
-                    target_size,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-                self.preview_label.setPixmap(scaled)
-        except Exception as e:
-            logger.debug(f"预览更新异常: {e}")
+    def _on_preview_frame(self, img: QImage):
+        """预览 worker 线程回调 —— 在主线程设置 pixmap"""
+        pix = QPixmap.fromImage(img)
+        if not pix.isNull():
+            target_size = self.preview_label.size()
+            scaled = pix.scaled(
+                target_size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self.preview_label.setPixmap(scaled)
 
     def setup_tray_icon(self):
         tray_icon_path = resource_path("img/app.ico")
@@ -614,9 +721,101 @@ class VideoPlayerApp(QMainWindow):
 
     def _quit_app(self):
         if self.player_window:
-            self.player_window.media_player.stop()
-            self.player_window.close()
+            self.player_window.teardown()
+            self.player_window.hide()
+            self.player_window.deleteLater()
+        if getattr(self, "_preview_worker", None):
+            self._preview_worker.stop()
         QApplication.quit()
+
+    # === 窗口拖动 ===
+
+    def _title_bar_mouse_press(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def _title_bar_mouse_move(self, event):
+        if self._drag_pos is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            event.accept()
+
+    _EDGE_MARGIN = 6
+
+    def _hit_test_edges(self, pos):
+        rect = self.rect()
+        x, y = pos.x(), pos.y()
+        m = self._EDGE_MARGIN
+        if x < m:
+            if y < m:
+                return "top-left"
+            elif y > rect.height() - m:
+                return "bottom-left"
+            return "left"
+        if x > rect.width() - m:
+            if y < m:
+                return "top-right"
+            elif y > rect.height() - m:
+                return "bottom-right"
+            return "right"
+        if y < m:
+            return "top"
+        if y > rect.height() - m:
+            return "bottom"
+        return None
+
+    _EDGE_CURSORS = {
+        "top-left": Qt.CursorShape.SizeFDiagCursor,
+        "bottom-right": Qt.CursorShape.SizeFDiagCursor,
+        "top-right": Qt.CursorShape.SizeBDiagCursor,
+        "bottom-left": Qt.CursorShape.SizeBDiagCursor,
+        "left": Qt.CursorShape.SizeHorCursor,
+        "right": Qt.CursorShape.SizeHorCursor,
+        "top": Qt.CursorShape.SizeVerCursor,
+        "bottom": Qt.CursorShape.SizeVerCursor,
+    }
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            pos = event.position().toPoint()
+            edge = self._hit_test_edges(pos)
+            if edge and not self.childAt(pos):
+                self._resize_edge = edge
+                self._resize_start_pos = event.globalPosition().toPoint()
+                self._resize_start_rect = self.geometry()
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if hasattr(self, '_resize_edge') and self._resize_edge and event.buttons() & Qt.MouseButton.LeftButton:
+            delta = event.globalPosition().toPoint() - self._resize_start_pos
+            r = self._resize_start_rect
+            new_rect = r.adjusted(0, 0, 0, 0)
+            if "right" in self._resize_edge:
+                new_rect.setRight(r.right() + delta.x())
+            if "bottom" in self._resize_edge:
+                new_rect.setBottom(r.bottom() + delta.y())
+            if "left" in self._resize_edge:
+                new_rect.setLeft(r.left() + delta.x())
+            if "top" in self._resize_edge:
+                new_rect.setTop(r.top() + delta.y())
+            if new_rect.width() >= MIN_WIDTH and new_rect.height() >= MIN_HEIGHT:
+                self.setGeometry(new_rect)
+            event.accept()
+            return
+        edge = self._hit_test_edges(event.position().toPoint())
+        if edge and not self.childAt(event.position().toPoint()):
+            self.setCursor(self._EDGE_CURSORS.get(edge, Qt.CursorShape.ArrowCursor))
+        else:
+            self.unsetCursor()
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._resize_edge = None
+        self._drag_pos = None
+        self.unsetCursor()
+        super().mouseReleaseEvent(event)
 
     def closeEvent(self, event):
         self._ask_exit()
@@ -624,12 +823,13 @@ class VideoPlayerApp(QMainWindow):
 
     def showEvent(self, event):
         super().showEvent(event)
-        if not self.headless:
-            self.preview_timer.start()
+        if not self.headless and not self._preview_worker.isRunning():
+            self._preview_worker.set_screen(self.screen_combo.currentData())
+            self._preview_worker.start()
 
     def hideEvent(self, event):
         super().hideEvent(event)
-        self.preview_timer.stop()
+        self._preview_worker.stop()
 
     def _sync_video_list_selection(self, index):
         snap = self.library.snapshot()
@@ -650,27 +850,54 @@ class VideoPlayerApp(QMainWindow):
             self.toast.show_message("请先点击投放按钮")
             return
         player = self.player_window
-        if player:
-            is_playing = player.pause_play()
-            icon_name = "pause" if is_playing else "play"
-            self.btn_play_pause.set_icon(icon_name)
-            self.btn_play_pause.label.setText("暂停" if is_playing else "播放")
+        if not player:
+            return
+        if player.is_image_mode:
+            self.toast.show_message("图片模式无需播放控制", 1500)
+            return
+        # pause_play() 已切换播放器状态，这里只需同步 UI（避免重复 play/pause）
+        is_playing = player.pause_play()
+        self._update_play_pause_ui(is_playing)
 
     def _on_toggle_mute(self):
         if not self.is_projecting:
             self.toast.show_message("请先点击投放按钮")
             return
         player = self.player_window
-        if player:
-            is_muted = player.toggle_mute()
-            self._update_mute_ui(is_muted)
-            self.toast.show_message("已静音" if is_muted else "已取消静音", 1500)
+        if not player:
+            return
+        if player.is_image_mode:
+            self.toast.show_message("图片模式无需静音控制", 1500)
+            return
+        is_muted = player.toggle_mute()
+        self._apply_mute(is_muted)
+        self.toast.show_message("已静音" if is_muted else "已取消静音", 1500)
 
     def _update_mute_ui(self, is_muted: bool):
         self.is_muted = is_muted
         icon_name = "mute" if is_muted else "unmute"
         self.btn_mute.set_icon(icon_name)
         self.btn_mute.label.setText("静音" if is_muted else "取消静音")
+
+    def _apply_mute(self, muted: bool):
+        """远程控制统一入口 —— 同时更新播放器状态与 UI"""
+        if self.player_window and not self.player_window.is_image_mode:
+            self.player_window.audio_output.setMuted(muted)
+        self._update_mute_ui(muted)
+
+    def _update_play_pause_ui(self, play: bool):
+        icon_name = "pause" if play else "play"
+        self.btn_play_pause.set_icon(icon_name)
+        self.btn_play_pause.label.setText("暂停" if play else "播放")
+
+    def _apply_play_pause(self, play: bool):
+        """远程控制统一入口 —— 同时更新播放器状态与 UI"""
+        if self.player_window:
+            if play:
+                self.player_window.media_player.play()
+            else:
+                self.player_window.media_player.pause()
+            self._update_play_pause_ui(play)
 
     def _on_prev(self):
         if not self.is_projecting:
@@ -690,17 +917,8 @@ class VideoPlayerApp(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "选择文件夹")
         if not folder:
             return
-        new_paths = []
-        try:
-            for file in Path(folder).iterdir():
-                if file.is_file():
-                    new_paths.append(str(file.resolve()))
-        except Exception as e:
-            logger.error(f"读取文件夹出错: {e}")
-            self.toast.show_message("读取文件夹失败")
-            return
 
-        result = self.library.add(new_paths)
+        result = self.library.add_from_folder(folder)
         added = len(result['added_videos']) + len(result['added_images'])
         if added > 0:
             self.toast.show_message(f"已添加 {added} 个文件")
@@ -760,6 +978,8 @@ if __name__ == "__main__":
 
     if not args.headless:
         window.show()
+        window.raise_()
+        window.activateWindow()
     else:
         window.hide()
         logger.info("无界面模式启动")

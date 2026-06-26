@@ -1,5 +1,4 @@
 import logging
-import threading
 from PyQt6.QtCore import QObject, pyqtSlot, QMetaObject, Qt
 
 logger = logging.getLogger(__name__)
@@ -12,8 +11,11 @@ class PlayerController(QObject):
         super().__init__(parent)
 
     def invoke_on_main(self, callable_fn, *args, timeout: float = 10.0):
-        """在主线程执行 callable 并同步等待结果（供 API/MCP 线程调用）"""
-        event = threading.Event()
+        """在主线程执行 callable 并同步等待结果（供 API/MCP 线程调用）
+
+        使用 BlockingQueuedConnection，调用线程会阻塞直到主线程执行完毕。
+        注意：主线程必须不被长时间阻塞（耗时 I/O 已移至 worker 线程）。
+        """
         result_box = [None, None]
 
         def _wrapper():
@@ -21,15 +23,11 @@ class PlayerController(QObject):
                 result_box[0] = callable_fn(*args)
             except Exception as e:
                 result_box[1] = e
-            finally:
-                event.set()
 
         QMetaObject.invokeMethod(
             self, "_execOnMain", Qt.ConnectionType.BlockingQueuedConnection,
             Qt.Q_ARG(object, _wrapper),
         )
-        if not event.wait(timeout):
-            logger.warning("invoke_on_main 超时，主线程可能阻塞")
         if result_box[1] is not None:
             raise result_box[1]
         return result_box[0]

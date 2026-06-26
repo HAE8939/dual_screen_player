@@ -6,6 +6,8 @@ from pathlib import Path
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor
 from PyQt6.QtCore import Qt, QSize
 
+from theme import CLAY_PRIMARY, TEXT_SECONDARY
+
 logger = logging.getLogger(__name__)
 
 ICON_DIR = Path(__file__).parent / "img" / "icons"
@@ -38,25 +40,19 @@ ICON_FALLBACK = {
     "projection_stop": "取消投放",
 }
 
-# 颜色常量（与 theme.py 对齐）
-_DEFAULT_COLOR = "#6B6862"
-_HOVER_COLOR = "#CC785C"
-_PRIMARY_COLOR = "#CC785C"
-_WHITE = "#FFFFFF"
 
-
-def load_icon(name: str, color: str = _DEFAULT_COLOR, size: int = 32) -> QIcon:
+def load_icon(name: str, color: str = TEXT_SECONDARY, size: int = 32) -> QIcon:
     """加载图标，SVG 按 color 着色；不存在则降级为中文文字"""
     svg_path = ICON_DIR / ICON_FILES.get(name, "")
     if svg_path.exists():
-        return _load_svg_colored(svg_path, color, size)
+        return _load_svg_colored(svg_path, color, size, name)
 
     fallback = ICON_FALLBACK.get(name, name[:2])
     logger.debug(f"图标 SVG 不存在: {name}，降级为文字: {fallback}")
     return _make_text_icon(fallback, color, size)
 
 
-def _load_svg_colored(svg_path: Path, color: str, size: int) -> QIcon:
+def _load_svg_colored(svg_path: Path, color: str, size: int, name: str) -> QIcon:
     """读取 SVG 并用指定颜色渲染"""
     try:
         from PyQt6.QtSvg import QSvgRenderer

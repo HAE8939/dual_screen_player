@@ -7,6 +7,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import QColor, QIcon
 
 from icon_loader import load_icon
+from theme import CLAY_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, TEXT_PRIMARY, DANGER, SUCCESS
 
 
 class GhostIconButton(QWidget):
@@ -38,7 +39,7 @@ class GhostIconButton(QWidget):
         self.label = QLabel(label)
         self.label.setObjectName("btnLabel")
         self.label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
-        self.label.setStyleSheet("font-size: 11px; color: #6B6862; background: transparent;")
+        self.label.setStyleSheet(f"font-size: 11px; color: {TEXT_SECONDARY}; background: transparent;")
         layout.addWidget(self.label, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         self.setFixedWidth(60)
@@ -48,28 +49,28 @@ class GhostIconButton(QWidget):
     def enterEvent(self, event):
         self._is_hovered = True
         if not self._is_active:
-            self.btn.setIcon(load_icon(self.icon_name, color="#CC785C"))
-            self.label.setStyleSheet("color: #CC785C; font-size: 11px; background: transparent;")
+            self.btn.setIcon(load_icon(self.icon_name, color=CLAY_PRIMARY))
+            self.label.setStyleSheet(f"color: {CLAY_PRIMARY}; font-size: 11px; background: transparent;")
         super().enterEvent(event)
 
     def leaveEvent(self, event):
         self._is_hovered = False
         if not self._is_active:
             self.btn.setIcon(load_icon(self.icon_name))
-            self.label.setStyleSheet("color: #6B6862; font-size: 11px; background: transparent;")
+            self.label.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px; background: transparent;")
         super().leaveEvent(event)
 
     def set_active(self, active: bool):
         self._is_active = active
         if active:
-            self.btn.setIcon(load_icon(self.icon_name, color="#CC785C"))
-            self.label.setStyleSheet("color: #CC785C; font-size: 11px; font-weight: bold; background: transparent;")
+            self.btn.setIcon(load_icon(self.icon_name, color=CLAY_PRIMARY))
+            self.label.setStyleSheet(f"color: {CLAY_PRIMARY}; font-size: 11px; font-weight: bold; background: transparent;")
         else:
-            color = "#CC785C" if self._is_hovered else None
+            color = CLAY_PRIMARY if self._is_hovered else None
             self.btn.setIcon(load_icon(self.icon_name, color=color) if color else load_icon(self.icon_name))
-            self.label.setStyleSheet("color: #6B6862; font-size: 11px; background: transparent;")
+            self.label.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px; background: transparent;")
 
-    def set_icon(self, icon_name: str, color: str = "#6B6862"):
+    def set_icon(self, icon_name: str, color: str = TEXT_SECONDARY):
         self.icon_name = icon_name
         self.btn.setIcon(load_icon(icon_name, color=color))
 
@@ -103,7 +104,7 @@ class PrimaryButton(QWidget):
         self.label = QLabel(label)
         self.label.setObjectName("btnLabel")
         self.label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
-        self.label.setStyleSheet("font-size: 11px; font-weight: bold; color: #6B6862; background: transparent;")
+        self.label.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {TEXT_SECONDARY}; background: transparent;")
         layout.addWidget(self.label, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         self.setFixedWidth(90)
@@ -125,13 +126,13 @@ class PrimaryButton(QWidget):
         if self._is_active:
             self.btn.setProperty("class", "primaryBtnActive")
             self.btn.setText("✕ 取消投放")
-            self.btn.setIcon(load_icon("projection_stop", color="#BF4D43"))
-            self.label.setStyleSheet("color: #BF4D43; font-size: 11px; font-weight: bold; background: transparent;")
+            self.btn.setIcon(load_icon("projection_stop", color=DANGER))
+            self.label.setStyleSheet(f"color: {DANGER}; font-size: 11px; font-weight: bold; background: transparent;")
         else:
             self.btn.setProperty("class", "primaryBtn")
             self.btn.setText("◉ 投放")
             self.btn.setIcon(load_icon("projection", color="#FFFFFF"))
-            self.label.setStyleSheet("color: #6B6862; font-size: 11px; font-weight: bold; background: transparent;")
+            self.label.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px; font-weight: bold; background: transparent;")
         self.btn.style().unpolish(self.btn)
         self.btn.style().polish(self.btn)
 
@@ -154,24 +155,24 @@ class StatusBadge(QWidget):
 
         self.dot = QLabel("●")
         self.dot.setObjectName("statusBadge")
-        self.dot.setStyleSheet("font-size: 10px; color: #8F8B82; background: transparent;")
+        self.dot.setStyleSheet(f"font-size: 10px; color: {TEXT_MUTED}; background: transparent;")
         layout.addWidget(self.dot)
 
         self.text = QLabel("未投放")
         self.text.setObjectName("statusBadge")
-        self.text.setStyleSheet("font-size: 11px; color: #8F8B82; background: transparent;")
+        self.text.setStyleSheet(f"font-size: 11px; color: {TEXT_MUTED}; background: transparent;")
         layout.addWidget(self.text)
 
     def set_state(self, state: str, **kwargs):
         if state == "projecting":
             idx = kwargs.get("screen_index", 1)
-            self.dot.setStyleSheet("font-size: 10px; color: #6A7B5D; background: transparent;")
+            self.dot.setStyleSheet(f"font-size: 10px; color: {SUCCESS}; background: transparent;")
             self.text.setText(f"投放中（屏幕{idx}）")
-            self.text.setStyleSheet("font-size: 11px; color: #6A7B5D; font-weight: bold; background: transparent;")
+            self.text.setStyleSheet(f"font-size: 11px; color: {SUCCESS}; font-weight: bold; background: transparent;")
         else:
-            self.dot.setStyleSheet("font-size: 10px; color: #8F8B82; background: transparent;")
+            self.dot.setStyleSheet(f"font-size: 10px; color: {TEXT_MUTED}; background: transparent;")
             self.text.setText("未投放")
-            self.text.setStyleSheet("font-size: 11px; color: #8F8B82; background: transparent;")
+            self.text.setStyleSheet(f"font-size: 11px; color: {TEXT_MUTED}; background: transparent;")
 
 
 class MediaListWidget(QListWidget):
@@ -190,10 +191,10 @@ class MediaListWidget(QListWidget):
             font = item.font()
             font.setBold(True)
             item.setFont(font)
-            item.setForeground(QColor("#CC785C"))
+            item.setForeground(QColor(CLAY_PRIMARY))
         else:
             item.setText(name)
             font = item.font()
             font.setBold(False)
             item.setFont(font)
-            item.setForeground(QColor("#141413"))
+            item.setForeground(QColor(TEXT_PRIMARY))

@@ -3,3 +3,4 @@ PyQt6-Qt6>=6.5.0
 flask>=3.0.0
 mcp>=1.0.0
 waitress>=2.1.0
+mss>=9.0.0

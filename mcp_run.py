@@ -101,7 +101,7 @@ def main():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     
-    window = VideoPlayerApp()
+    window = VideoPlayerApp(headless=True)
     window.hide()
     
     set_player_app(window)
