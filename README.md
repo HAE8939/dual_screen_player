@@ -9,13 +9,214 @@
 
 ---
 
+## 📝 更新日志
+
+### v3.2.0 (2026-06-26) - 架构重构与安全加固
+**🐛 关键修复**
+- 🔴 **修复跨线程 GUI 操作（致命崩溃源）**：API/MCP 线程不再直接操作 PyQt6 控件，通过 `PlayerController` 信号机制编组回主线程
+- 🔴 **修复图片全屏缩放错误**：改用 `KeepAspectRatio` 等比缩放 + `resizeEvent` 重算，支持任意分辨率副屏
+- 🔴 **修复 API 零鉴权安全漏洞**：非 localhost 监听强制要求 `--token`，所有写操作端点校验 Bearer Token
+- 🔴 **修复预览定时器资源浪费**：窗口隐藏/headless 模式自动停止截图
+- 修复 `prev_media`/`next_media` 空指针崩溃（未检查 `player_window`）
+- 修复损坏视频导致自动续播链卡死（处理 `InvalidMedia`/`NoMedia`）
+- 修复裸 `except: pass` 吞异常（改为捕获 `TypeError`）
+
+**✨ 架构优化**
+- 新增 `MediaLibrary` 统一数据模型，GUI/API/MCP 三端共用，消除三处重复逻辑
+- 新增 `PlayerController` 控制层，线程安全的跨线程调用机制
+- API `--host` 默认值改为 `127.0.0.1`（不再全网监听）
+- 用 `waitress` 替代 Flask 开发服务器（生产部署）
+- `request.get_json(silent=True)` + 显式类型校验
+
+**🎨 UI 改进**
+- 标题栏右上角增加显式"退出"按钮（红色 hover）
+- 屏幕选择行增加状态徽标（未投放/投放中）
+- 7 个按钮全部补 `setToolTip`，图标加载失败时降级为中文文字
+- 右侧预览面板增加标题，无信号时显示占位文案
+- 投放后副屏显示加载提示，替换大部分 `QMessageBox` 为非阻塞 Toast
+- `closeEvent` 改为三选一（最小化到托盘/退出/取消）
+- 投放按钮 500ms 防抖，防止连击创建多个窗口
+
+**📦 新增文件**
+- `media_library.py` - 统一媒体数据模型（线程安全）
+- `player_controller.py` - 跨线程控制层
+- `requirements.txt` - 依赖锁定
+
+**🔧 启动参数**
+```bash
+# 基础模式
+python dual_screen_player.py
+
+# 启用 REST API（默认仅监听 localhost）
+python dual_screen_player.py --api --port 5000
+
+# 非 localhost 监听（强制鉴权）
+python dual_screen_player.py --api --host 0.0.0.0 --token YOUR_SECRET
+
+# 启用 MCP 服务器
+python dual_screen_player.py --mcp
+
+# 无界面模式（后台服务）
+python dual_screen_player.py --api --mcp --headless
+```
+
+---
+
+### v3.0.0 (2026-01-15) - 代码优化与质量提升
+**✨ 功能继承**
+- 完整保留所有现有功能：视频投放、图片投放、屏幕预览
+
+**🔧 代码优化**
+- ✅ **消除代码重复**：删除了 70+ 行重复代码
+  - 合并 `toggle_mute()`、`prev_video()`、`next_video()`、`pause_play()` 方法实现
+  - 统一播放器方法逻辑，避免多个类中的功能冗余
+- ✅ **提取常量配置**：将魔法数字集中管理
+  - 窗口尺寸：`WINDOW_WIDTH = 820`, `WINDOW_HEIGHT = 420`
+  - UI 元素：`ICON_SIZE = 32`, `PREVIEW_PANEL_WIDTH = 260`
+  - 性能参数：`PREVIEW_UPDATE_INTERVAL = 500` ms
+  - 支持格式：`SUPPORTED_VIDEO_EXTS`、`SUPPORTED_IMAGE_EXTS`
+- ✅ **增强异常处理**：为所有关键操作添加完整的 try-except 块
+  - 文件读取和文件夹遍历
+  - 屏幕操作和媒体播放
+  - 提供详细的错误信息反馈
+- ✅ **改进日志系统**：替代所有 `print()` 为结构化 logging
+  - 支持日志级别控制（INFO、WARNING、ERROR）
+  - 便于生产环境调试和监控
+- ✅ **代码行数优化**：839 → 815 行（精简 24 行）
+
+**📖 文档改进**
+- 为所有主要方法添加详细的文档字符串
+- 改进代码注释清晰度，便于维护
+- 添加代码分节标注（如 # === 标题栏 ===）
+
+**🐛 问题修复**
+- 修复屏幕预览异常时的处理机制
+- 改进错误提示消息的用户友好度
+
+---
+
+### v2.1.0 (2026-01-14) - 屏幕预览功能发布
+**✨ 新增功能**
+- 🖥️ **实时屏幕预览**：右侧预览面板显示目标屏幕内容
+  - 自动刷新预览（500ms 更新周期）
+  - 支持多屏预览，选择屏幕后实时更新
+  - 帮助用户确认投放屏幕位置
+  - 屏幕预览面板宽度 260px，与主窗口等高
+
+**🔧 界面改进**
+- 扩展主窗口布局，左侧为控制面板，右侧为实时预览
+- 提升屏幕选择的用户体验
+- 屏幕预览面板设计美观专业，深色主题配合白色边框
+
+**📊 功能完整度**
+- 形成"所见即所得"的投放体验
+- 用户可在投放前预览目标屏幕
+
+---
+
+### v2.0.0 (2026-01-13) - 图片投放支持发布
+**✨ 新增功能**
+- 📸 **图片投放功能**：
+  - 支持 PNG、JPG、JPEG 格式图片
+  - 图片自适应全屏显示（智能缩放）
+  - 与视频列表独立管理（标签页切换）
+  - 支持上一张/下一张快速浏览（循环）
+  - 图片模式下播放/暂停按钮自动禁用（无播放意义）
+
+- 📑 **标签页管理**：
+  - 视频列表标签页：专门管理视频文件
+  - 图片列表标签页：专门管理图片文件
+  - 灵活切换播放内容，投放中可实时切换
+
+**🔧 改进**
+- 文件导入逻辑优化，自动识别视频和图片格式
+- 从文件夹导入时自动分类处理（视频→视频列表，图片→图片列表）
+- 完整的列表同步机制，确保投放内容与主窗口同步
+
+**📊 应用场景拓展**
+- 支持图片轮播展示（展会、商业展示）
+- 支持视频+图片混合投放（灵活性提升）
+
+---
+
+### v1.0.0 (2025-12-31) - 初始版本，视频投放基础功能
+**✨ 核心功能**
+- 🎬 **视频投放**：
+  - 支持 MP4、MKV、AVI、MOV、WMV、FLV、WebM 等 7 种格式
+  - 全屏投放到指定屏幕，支持多屏显示环境
+  - 视频自动循环播放（播完自动切换下一个）
+
+- 🖱️ **播放控制**：
+  - ▶️/⏸️ 暂停/继续播放
+  - ⬅️/➡️ 上一个/下一个视频（循环切换）
+  - 🔇/🔊 静音/取消静音
+
+- 📂 **文件管理**：
+  - 从文件夹批量导入视频
+  - 添加单个或多个视频文件
+  - 视频列表管理，避免重复导入
+
+- 🎯 **屏幕选择**：
+  - 自动识别所有连接的显示器
+  - 支持多屏显示环境
+  - 灵活选择投放目标屏幕
+
+- 📌 **系统集成**：
+  - 系统托盘集成，最小化到托盘
+  - 双击托盘图标恢复主窗口
+  - 优雅的关闭和退出机制
+
+---
+
+## 🚀 版本发展对比表
+
+> **v3.2.0 重要安全提示**：API 默认仅监听 `127.0.0.1`（localhost）。如需局域网访问，必须通过 `--token` 参数设置鉴权令牌。
+
+---
+
+## 🔒 安全说明
+
+### API 鉴权机制
+
+v3.2.0 引入了 API 鉴权机制，防止未授权访问：
+
+```bash
+# 仅监听 localhost（默认，无需鉴权）
+python dual_screen_player.py --api
+
+# 局域网访问（强制鉴权）
+python dual_screen_player.py --api --host 0.0.0.0 --token YOUR_SECRET_TOKEN
+```
+
+### 调用示例
+
+```python
+import requests
+
+BASE_URL = "http://localhost:5000"
+HEADERS = {"Authorization": "Bearer YOUR_SECRET_TOKEN"}
+
+# 需要鉴权的请求
+requests.post(f"{BASE_URL}/api/projection/start", headers=HEADERS)
+requests.get(f"{BASE_URL}/api/status", headers=HEADERS)
+```
+
+### 安全建议
+
+- 生产环境务必设置强随机 Token
+- 不要在公共网络暴露 API 服务
+- 定期更换 Token
+- 使用 `waitress` 替代 Flask 开发服务器
+
+---
+
 ## 📸 界面预览
 
 ![MT-Player 主界面](./img/界面预览.png)
 
 > **主窗口功能展示**：  
 > - 📱 顶部：应用标题 "MT-Player BY:HAE"  
-> - 🖥️ 屏幕选择：下拉框选择投放屏幕  
+> - 🖥️ 屏幕选择：下拉框选择投放屏幕，右侧实时预览  
 > - 📑 标签页：视频列表 / 图片列表  
 > - 🎛️ 控制栏：7 个功能按钮，界面简洁专业
 
@@ -198,7 +399,7 @@ venv\Scripts\activate
 source venv/bin/activate
 
 # 3. 安装依赖
-pip install pyqt6
+pip install -r requirements.txt
 
 # 4. 运行程序
 python dual_screen_player.py
@@ -230,6 +431,14 @@ pyinstaller --onefile --windowed `
 ```
 Dual_screen_player/
 ├── dual_screen_player.py      ← 主程序
+├── media_library.py           ← 统一媒体数据模型（线程安全）
+├── player_controller.py       ← 跨线程控制层
+├── api_server.py              ← REST API 服务器模块
+├── mcp_server.py              ← MCP 服务器模块
+├── mcp_run.py                 ← MCP 独立启动脚本
+├── requirements.txt           ← 依赖锁定
+├── test_mcp.py                ← MCP 功能测试脚本
+├── test_mcp_full.py           ← MCP 完整测试脚本
 ├── README.md                  ← 本文档
 └── img/                        ← 图标资源文件夹
     ├── app.ico                ← 应用图标（EXE 打包 + 托盘）
@@ -252,9 +461,154 @@ Dual_screen_player/
 
 | 组件 | 版本 | 用途 |
 |-----|------|------|
-| **Python** | 3.8+ | 运行环境（推荐 3.10~3.12） |
-| **PyQt6** | 最新 | GUI 框架 + 多媒体播放 |
+| **Python** | 3.10+ | 运行环境（推荐 3.10~3.12） |
+| **PyQt6** | >=6.5.0 | GUI 框架 + 多媒体播放 |
+| **Flask** | >=3.0.0 | REST API 服务器（可选） |
+| **waitress** | >=2.1.0 | 生产级 WSGI 服务器（可选） |
+| **MCP** | >=1.0.0 | MCP 协议支持（可选） |
 | **PyInstaller** | 最新 | 打包 EXE（仅打包时需要） |
+
+---
+
+## 🌐 REST API 接口文档
+
+### 启动 API 服务器
+
+```bash
+python dual_screen_player.py --api --port 5000
+```
+
+### API 端点列表
+
+#### 投放控制
+| 端点 | 方法 | 说明 |
+|-----|------|------|
+| `POST /api/projection/start` | 开始投放 | 可选 `{"screen_index": 0}` |
+| `POST /api/projection/stop` | 停止投放 | - |
+| `GET /api/projection/status` | 投放状态 | - |
+
+#### 播放控制
+| 端点 | 方法 | 说明 |
+|-----|------|------|
+| `POST /api/player/play` | 播放 | - |
+| `POST /api/player/pause` | 暂停 | - |
+| `POST /api/player/prev` | 上一个 | - |
+| `POST /api/player/next` | 下一个 | - |
+| `POST /api/player/mute` | 静音 | - |
+| `POST /api/player/unmute` | 取消静音 | - |
+| `GET /api/player/status` | 播放状态 | - |
+
+#### 文件管理
+| 端点 | 方法 | 说明 |
+|-----|------|------|
+| `GET /api/files/videos` | 视频列表 | - |
+| `GET /api/files/images` | 图片列表 | - |
+| `POST /api/files/add` | 添加文件 | `{"files": ["path1", "path2"]}` |
+| `DELETE /api/files/video/<index>` | 删除视频 | - |
+| `DELETE /api/files/image/<index>` | 删除图片 | - |
+| `POST /api/files/clear` | 清空列表 | `{"type": "all/video/image"}` |
+
+#### 屏幕管理
+| 端点 | 方法 | 说明 |
+|-----|------|------|
+| `GET /api/screens` | 屏幕列表 | - |
+| `POST /api/screens/select` | 选择屏幕 | `{"index": 0}` |
+
+#### 状态与应用
+| 端点 | 方法 | 说明 |
+|-----|------|------|
+| `GET /api/status` | 整体状态 | - |
+| `GET /api/app/info` | 应用信息 | - |
+| `POST /api/app/shutdown` | 关闭应用 | - |
+| `POST /api/mode/switch` | 切换模式 | `{"mode": "video/image"}` |
+
+### 调用示例
+
+```python
+import requests
+
+BASE_URL = "http://localhost:5000"
+
+# 获取屏幕列表
+screens = requests.get(f"{BASE_URL}/api/screens").json()
+
+# 添加文件
+requests.post(f"{BASE_URL}/api/files/add", json={
+    "files": ["C:/Videos/demo.mp4"]
+})
+
+# 开始投放
+requests.post(f"{BASE_URL}/api/projection/start")
+
+# 播放控制
+requests.post(f"{BASE_URL}/api/player/next")
+requests.post(f"{BASE_URL}/api/player/mute")
+
+# 获取状态
+status = requests.get(f"{BASE_URL}/api/status").json()
+```
+
+---
+
+## 🤖 MCP 协议支持
+
+### 配置 CoPaw / Claude Desktop
+
+在 MCP 配置文件中添加：
+
+```json
+{
+    "mcpServers": {
+        "mt-player": {
+            "command": "python",
+            "args": ["<项目路径>/mcp_run.py"]
+        }
+    }
+}
+```
+
+### MCP 工具列表
+
+| 工具名 | 说明 |
+|-------|------|
+| `start_projection` | 开始投放 |
+| `stop_projection` | 停止投放 |
+| `get_projection_status` | 获取投放状态 |
+| `play` | 播放视频 |
+| `pause` | 暂停视频 |
+| `prev_media` | 上一个媒体 |
+| `next_media` | 下一个媒体 |
+| `mute` | 静音 |
+| `unmute` | 取消静音 |
+| `get_player_status` | 获取播放状态 |
+| `get_video_list` | 获取视频列表 |
+| `get_image_list` | 获取图片列表 |
+| `add_files` | 添加文件 |
+| `delete_video` | 删除视频 |
+| `delete_image` | 删除图片 |
+| `clear_files` | 清空文件列表 |
+| `get_screens` | 获取屏幕列表 |
+| `select_screen` | 选择屏幕 |
+| `get_full_status` | 获取完整状态 |
+| `get_app_info` | 获取应用信息 |
+| `shutdown_app` | 关闭应用 |
+| `switch_mode` | 切换模式 |
+
+### AI 助手使用示例
+
+```
+用户: 帮我在副屏投放一张图片
+AI: [调用 get_screens → add_files → start_projection]
+    已在副屏投放图片！
+
+用户: 切换到下一张
+AI: [调用 next_media]
+    已切换！
+
+用户: 关闭播放器
+AI: [调用 shutdown_app]
+    播放器已关闭。
+```
 
 ---
 
@@ -272,6 +626,7 @@ Dual_screen_player/
 - 点击"屏幕选择"下拉框，选择目标屏幕
 - ⚠️ **重要**：投放屏幕不能与应用程序所在屏幕相同
 - 主屏幕会标记为 `[主屏]`
+- 右侧预览面板实时显示选中屏幕内容
 
 #### 3️⃣ 开始投放
 - 点击 📡 "继续投放"按钮
@@ -386,9 +741,20 @@ VideoPlayerApp        ← 主控制窗口（QMainWindow）
 - `tab_widget.currentChanged` → `on_tab_changed()` 列表切换事件
 - `player_window.currentIndexChanged` → `sync_*_list_selection()` 播放项目同步
 
-
 ---
 
+## 💡 使用场景
+
+| 场景 | 用途 |
+|-----|------|
+| 🏪 门店展示 | 循环播放商品宣传视频 |
+| 🎪 展览会 | 多屏联动展示产品信息与图片 |
+| 📊 会议室 | 全屏演示PPT录像或视频 |
+| 📺 信息屏 | 广告、滚动图片、通知展示 |
+| 📹 监控中心 | 多屏视频监控回放 |
+| 🎓 培训室 | 教学视频全屏播放与管理 |
+
+---
 
 ## 👨‍💻 贡献指南
 
@@ -413,19 +779,6 @@ git push origin feature/your-feature
 
 ---
 
-## 💡 使用场景
-
-| 场景 | 用途 |
-|-----|------|
-| 🏪 门店展示 | 循环播放商品宣传视频 |
-| 🎪 展览会 | 多屏联动展示产品信息与图片 |
-| 📊 会议室 | 全屏演示PPT录像或视频 |
-| 📺 信息屏 | 广告、滚动图片、通知展示 |
-| 📹 监控中心 | 多屏视频监控回放 |
-| 🎓 培训室 | 教学视频全屏播放与管理 |
-
----
-
 ## 👤 作者
 
 **HAE** - 创意来自实际工作中对双屏播放工具的需求
@@ -436,4 +789,6 @@ git push origin feature/your-feature
 
 ---
 
-**Last Updated**: 2024 | © MIT License
+**Last Updated**: 2026-06-26 | © MIT License
+
+> 📌 **查看优化详情**：请参考 [OPTIMIZATION_REPORT.md](./OPTIMIZATION_REPORT.md) 了解 v3.0.0 版本的详细改进
