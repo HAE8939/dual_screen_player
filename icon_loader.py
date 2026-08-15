@@ -1,6 +1,7 @@
 """图标加载器 —— 支持 SVG 着色，降级为中文文字"""
 
 import os
+import sys
 import logging
 from pathlib import Path
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor
@@ -10,7 +11,9 @@ from theme import CLAY_PRIMARY, TEXT_SECONDARY
 
 logger = logging.getLogger(__name__)
 
-ICON_DIR = Path(__file__).parent / "img" / "icons"
+# 兼容 PyInstaller 打包：_MEIPASS 为运行时资源根目录
+_BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+ICON_DIR = _BASE_DIR / "img" / "icons"
 
 # 图标名称 → SVG 文件名映射
 ICON_FILES = {

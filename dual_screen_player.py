@@ -33,7 +33,8 @@ PREVIEW_PANEL_WIDTH = 260
 
 
 def resource_path(relative_path):
-    base_path = os.path.dirname(os.path.abspath(__file__))
+    """资源路径：兼容 PyInstaller 打包（onefile/onedir）与源码运行。"""
+    base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base_path, relative_path)
 
 
