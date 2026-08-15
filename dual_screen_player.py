@@ -675,16 +675,19 @@ class VideoPlayerApp(QMainWindow):
             )
             self.preview_label.setPixmap(scaled)
 
+    def _load_app_icon(self):
+        """加载多分辨率应用图标：优先 ico（含 16/24/32/48/64/128/256），回退 png。"""
+        ico_path = resource_path("img/app.ico")
+        if Path(ico_path).exists():
+            return QIcon(ico_path)
+        png_path = resource_path("img/app.png")
+        if Path(png_path).exists():
+            return QIcon(png_path)
+        return QIcon()
+
     def setup_tray_icon(self):
-        tray_icon_path = resource_path("img/app.ico")
-        if Path(tray_icon_path).exists():
-            icon = QIcon(tray_icon_path)
-        else:
-            png_path = resource_path("img/app.png")
-            if Path(png_path).exists():
-                icon = QIcon(png_path)
-            else:
-                icon = QIcon()
+        icon = self._load_app_icon()
+        self.setWindowIcon(icon)  # 任务栏 / Alt-Tab / 窗口标题图标
 
         self.tray_icon = QSystemTrayIcon(icon, self)
         menu = QMenu()

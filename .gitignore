@@ -6,3 +6,4 @@ __pycache__/
 *.pyo
 .codegraph/
 .mt-player/
+.workbuddy/

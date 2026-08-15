@@ -53,10 +53,11 @@ def load_icon(name: str, color: str = TEXT_SECONDARY, size: int = 32) -> QIcon:
 
 
 def _load_svg_colored(svg_path: Path, color: str, size: int, name: str) -> QIcon:
-    """读取 SVG 并用指定颜色渲染"""
+    """读取 SVG 并用指定颜色渲染（支持高 DPI / 设备像素比）"""
     try:
         from PyQt6.QtSvg import QSvgRenderer
         from PyQt6.QtCore import QByteArray
+        from PyQt6.QtWidgets import QApplication
 
         svg_data = svg_path.read_bytes()
         # 替换 SVG 中的 stroke/fill 颜色为指定颜色
@@ -68,9 +69,25 @@ def _load_svg_colored(svg_path: Path, color: str, size: int, name: str) -> QIcon
         svg_data = svg_str.encode("utf-8")
 
         renderer = QSvgRenderer(QByteArray(svg_data))
-        pixmap = QPixmap(QSize(size, size))
+
+        # 高 DPI 渲染：按 devicePixelRatio 放大绘制，再设置 ratio，
+        # 避免在 150%/200% 缩放下被拉伸模糊。
+        dpr = 1.0
+        app = QApplication.instance()
+        if app is not None:
+            dpr = app.devicePixelRatio()
+        if dpr <= 0:
+            dpr = 1.0
+        render_size = int(round(size * dpr))
+        if render_size < 1:
+            render_size = 1
+
+        pixmap = QPixmap(QSize(render_size, render_size))
         pixmap.fill(Qt.GlobalColor.transparent)
+        pixmap.setDevicePixelRatio(dpr)
+
         painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         renderer.render(painter)
         painter.end()
         return QIcon(pixmap)
