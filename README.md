@@ -2,6 +2,8 @@
 
 > 专为双屏/多屏场景设计的轻量级媒体播放工具，支持视频与图片的全屏投放，主窗口进行列表管理与控制。适用于展会、监控、广告轮播、图片展示等场景。
 
+![MT-Player](cover.png)
+
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)
 ![PyQt6](https://img.shields.io/badge/PyQt6-GUI-orange)
 ![License](https://img.shields.io/badge/License-MIT-green)
